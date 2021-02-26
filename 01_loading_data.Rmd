@@ -1,0 +1,372 @@
+---
+title: "Loading and organizing data in memory"
+author: "Cherki Amine, Florent Chuffart"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r, echo=FALSE, eval=TRUE,warning=FALSE}
+knitr::opts_chunk$set(collapse=TRUE, comment = "#>", fig.width=9, fig.height=6, eval=TRUE, echo=FALSE, results="hide")
+if (!exists("mread.table")) mread.table = memoise::memoise(read.table)
+```
+
+Since `R` widely works in memory space, this vignette loads and organises data in the memory.
+
+Memory cache mechanism is mainly based on: 
+
+  - memoisation using `memoise` package [1]
+  - testing if variable name exists in environment
+
+
+
+# Prerequisits
+
+Customs packages:
+
+- https://github.com/fchuffar/epimedtools (for a verbose apply)
+
+# Defining global parameters
+
+We define following global parameters : 
+
+- `tcga_project` the targeted TCGA cancer study name.
+- `gene_symbol` the gene symbol of the gene that we want to study.
+
+```{r echo=TRUE}
+tcga_project="TCGA-LUSC"
+# gene_symbol =  "H1F0"
+# gene_symbol = "AKR1B10"
+gene_symbol = "AKR1E2"
+```
+  
+# Load studies
+
+We load data omics data for the TCGA project `r tcga_project` [2] as well.
+
+  - `s_cnv  ` the *copy number variation* study
+  - `s_meth ` the *methylome*  study
+  - `s_trscr` the *transcriptome* study
+
+These variables will not ne directly manipulate, they need to be preprocessed according to gene promoter definitions.
+
+```{r label="loading studies", echo=TRUE}
+if (!exists("mreadRDS")) mreadRDS = memoise::memoise(readRDS)
+s_cnv   = mreadRDS(paste0("tcga_studies/study_", tcga_project, "_cnv.rds"))
+s_meth  = mreadRDS(paste0("tcga_studies/study_", tcga_project, "_meth.rds"))
+s_trscr = mreadRDS(paste0("tcga_studies/study_", tcga_project, "_trscr.rds"))
+```
+
+# Dynamicaly building of global gene/probe index
+
+Since, many methylation probes could be associated to a given gene promoter  (see 
+fig. 2 [Jones_nrg_2012](http://epimed.univ-grenoble-alpes.fr/downloads/florent/01_momik/doc/Jones_nrg_2012.pdf) and 
+fig. 2 [Weber_medsci_2008](http://epimed.univ-grenoble-alpes.fr/downloads/florent/01_momik/doc/Weber_medsci_2008.pdf)),
+we compute gene/probe index and store it in `gene_indexed_probes` global variable.
+
+`gene_indexed_probes` is a list named by gene names and containing vector of probe names.
+
+```{r}
+genes = mreadRDS("genes/bed_grch38_epimeddb.rds")
+genes = genes[rownames(genes)%in%rownames(s_trscr$data),]
+if (!exists("gene_indexed_probes")) {
+  # params
+  pf_chr_colname = "Chromosome"
+  pf_pos_colname = "Start"
+  up_str = 2000
+  dwn_str = 2000  
+  if (!exists("pf_orig")) {
+    pf_orig = s_meth$platform
+    pf_orig = pf_orig[order(pf_orig[[pf_chr_colname]],pf_orig[[pf_pos_colname]]), ]
+  }  
+  ## index meth probes by chr
+  chrs = unique(genes[,1])
+  chrs_indexed_methpf = lapply(chrs, function(chr) {
+    print(chr)
+    idx = rownames(pf_orig)[!is.na(pf_orig[[pf_chr_colname]]) & pf_orig[[pf_chr_colname]]==chr]  
+    ret = pf_orig[idx,]
+    return(ret)
+  })
+  names(chrs_indexed_methpf) = chrs
+  ## index probes by gene name
+  print("# indexing probes by gene name")
+  gene_indexed_probes = epimedtools::monitored_apply(genes, 1, function(gene) {
+    # gene = randomall_genes[1,]genes=readRDS("~/fchuffar/projects/genes/bed_grch38_epimeddb.rds")
+    # print(gene)
+    chr = gene[[1]]
+    meth_platform = chrs_indexed_methpf[[chr]]
+    ret = dmprocr::get_probe_names(gene, meth_platform, pf_chr_colname, pf_pos_colname, up_str, dwn_str) 
+    return(ret)
+  })
+  barplot(table(sapply(gene_indexed_probes, length)))
+  gene_indexed_probes = gene_indexed_probes[sapply(gene_indexed_probes, length)>0]
+}
+```
+
+```{r echo=TRUE, results=TRUE}
+head(names(gene_indexed_probes))
+length(gene_indexed_probes)
+gene_indexed_probes[[gene_symbol]]
+```
+
+# The `mget_multiomic_data` function
+
+We define a usefull function `mget_multiomic_data(gene, tcga_project)` that computes multiomic data of targeted TCGA cancer study for a given gene.
+
+**Warning**, `mget_multiomic_data` uses `gene_indexed_probes` global variable without passing it as an argument of the function. This is imposed by the memoisation mechanism.
+
+```{r label="mget_multiomic_data"}
+if (!exists("mget_multiomic_data")) {
+  # debugged and optimized version of dmprocr::trscr_meth_analysis https://github.com/bcm-uga/dmprocr
+  preproc_omics_data = function(gene_symbol, s_cnv, s_meth, s_trscr, gene_indexed_probes) {
+      meth_probe_idx = intersect(gene_indexed_probes[[gene_symbol]], rownames(s_meth$data))
+      if (length(meth_probe_idx) <= 1) {
+          return(NULL)
+      }
+      meth_data = s_meth$data[meth_probe_idx, ]
+      meth_data = meth_data[, apply(is.na(meth_data), 2, sum)/nrow(meth_data) < 0.5]
+      meth_data = meth_data[apply(is.na(meth_data), 1, sum)/ncol(meth_data) < 0.5, ]
+      # dim(meth_data)
+      meth_probe_idx = rownames(meth_data)
+      if (!is.null(s_cnv)) {
+          idx_sample = intersect (
+            intersect(
+              colnames(s_trscr$data)[order(s_trscr$data[gene_symbol,])], 
+              colnames(meth_data)
+            ),
+            colnames(s_cnv$data)[abs(s_cnv$data[gene_symbol, ]) < 0.2]
+          )
+      } else {
+          idx_sample = intersect(
+            colnames(s_trscr$data)[order(s_trscr$data[gene_symbol,])], 
+            colnames(meth_data)
+          )
+      }
+      if (length(idx_sample) <= 1) {
+          return(NULL)
+      }
+      meth_data = meth_data[, idx_sample]
+      trscr_data = s_trscr$data[gene_symbol, idx_sample]
+      ret = list(
+        gene_symbol=gene_symbol, 
+        study_name=s_trscr$stuffs$name, 
+        meth_data=meth_data,
+        trscr_data=trscr_data
+      )
+      if (!all(all(names(trscr_data) == colnames(meth_data)))) stop("Sample are not ordered in trscr_data like in meth_data")
+      return(ret)
+  }
+  get_multiomic_data = function(gene_symbol, tcga_project) {
+    # warning: gene_indexed_probes is a global variable
+    s_cnv   = mreadRDS(paste0("tcga_studies/study_", tcga_project, "_cnv.rds"))
+    s_meth  = mreadRDS(paste0("tcga_studies/study_", tcga_project, "_meth.rds"))
+    s_trscr = mreadRDS(paste0("tcga_studies/study_", tcga_project, "_trscr.rds"))
+    preproc_omics_data(gene_symbol, s_cnv, s_meth, s_trscr, gene_indexed_probes)
+    
+  }
+  mget_multiomic_data = memoise::memoise(get_multiomic_data)
+}
+```
+
+
+
+
+```{r echo=TRUE, results=TRUE}
+data = mget_multiomic_data(gene_symbol, "TCGA-LUSC")
+names(data)
+data$gene_symbol
+data$study_name
+dim(data$meth_data)
+head(data$meth_data[,1:3])
+length(data$trscr_data)
+head(data$trscr_data)
+```
+
+
+
+
+
+
+
+
+
+
+
+# Visualisation
+
+```{r}
+par(mar=c(10, 4.1, 4.1, 2.1))
+layout(matrix(c(1, 1, 2, 2, 2, 2), 2), respect=TRUE)
+# transcriptome
+# par(mar=c(10, 4.1, 4.1, 2.1))
+plot(data$trscr_data, 1:length(data$trscr_data), 
+  main=paste(data$gene_symbol, tcga_project), 
+  xlab="log2(normalized expression)", 
+  ylab=paste0(length(data$trscr_data), " samples"), 
+  yaxt="n"
+) 
+# methylome
+colors = c("cyan", "black", "red")
+cols = colorRampPalette(colors)(20)
+breaks = seq(0, 1, length.out = length(cols) + 1)
+main = paste0("methylome TSS+/-", up_str)
+# par(mar=c(10, 4.1, 4.1, 2.1))
+image(data$meth_data, col=cols,  breaks=breaks, xaxt="n", 
+    yaxt="n", main=main)
+axis(1, (1:nrow(data$meth_data) - 1)/(nrow(data$meth_data) - 1), rownames(data$meth_data), 
+    las = 2)
+```
+
+# Scoring
+
+A first score has been defined by considering the linear model 
+
+$$expression~mean_metylation$$
+
+where expression is explained by the mean of methylome over considered probes
+
+
+
+```{r echo=TRUE, results=TRUE}
+expression = data$trscr_data
+mean_metylation = apply(t(data$meth_data),1,mean)
+m = lm(expression~mean_metylation)
+summary(m)
+# linear regression
+nb.pval <- length(rownames(data$meth_data))
+pval <- rep(NA,nb.pval)
+ml <- rep(NA,nb.pval)
+
+for(i in 1 : nb.pval){
+   ml <- lm(expression~data$meth_data[i,])
+   pval[i] <- summary(ml)$coefficients[2,4]
+}
+names(pval) <- rownames(data$meth_data)
+pval
+```
+
+
+```{r}
+# construction d'un fichier bed
+prob <- rownames(data$meth_data)
+bed <- s_meth$platform[prob,1:3]
+bed$gene_symbol <- data$gene_symbol
+bed$pval <- pval
+bed$strand <- (rep(genes$strand[genes$gene_symbol=="AKR1E2"],length(prob)))
+```
+
+**SGCE ET PEG10**
+
+```{r}
+data.sgce <- mget_multiomic_data("SGCE", "TCGA-LUSC")
+data.peg10 <- mget_multiomic_data("PEG10", "TCGA-LUSC")
+meth.sgce <- data.sgce$meth_data
+meth.peg10 <- data.peg10$meth_data
+trscr.sgce <- data.sgce$trscr_data
+trscr.peg10 <- data.peg10$trscr_data
+
+# suppression des NA pour SGCE
+size.sgce <- length(data.peg10$trscr_data)
+for(i in 1:size.sgce){
+  for(j in 1:length(rownames(meth.sgce))){
+    if(is.na(meth.sgce[j,i])==TRUE){
+      meth.sgce[j,i] <- mean(meth.sgce[,i],na.rm = TRUE)
+    }
+  }
+}
+# suppression des NA pour PEG10
+for(i in 1:length(data.peg10$trscr_data)){
+  for(j in 1:length(rownames(meth.peg10))){
+    if(is.na(meth.peg10[j,i])==TRUE){
+      meth.peg10[j,i] <- mean(meth.peg10[,i],na.rm = TRUE)
+    }
+  }
+}
+which(is.na(meth.peg10))
+which(is.na(meth.peg10))
+
+# linear regression
+pval1 <- c()
+for(i in 1:length(rownames(meth.peg10))){
+  lm2 <- lm(meth.sgce[i,]~trscr.sgce)
+  pval1[i] <- summary(lm2)$coefficients[2,4]
+}
+```
+
+
+
+```{r}
+# construction d'un fichier bed
+prob.sgce <- rownames(meth.sgce)
+bed.sgce <- s_meth$platform[prob.sgce,1:3]
+bed.sgce$gene_symbol <- data.sgce$gene_symbol
+bed.sgce$pval <- pval1
+bed.sgce$strand <- (rep(genes$strand[genes$gene_symbol=="SGCE"],length(prob.sgce)))
+head(bed.sgce)
+prefix = "sgce"
+write.table(bed.sgce,file = paste0(prefix,".bed"),sep="\t",quote=FALSE,row.names = FALSE,col.names = TRUE)
+```
+```{r}
+par(mfrow=c(1,2))
+# les p-valeurs corrigées avec comb-p
+plot(1:length(trscr.sgce),trscr.sgce,xlab = "233",ylab="valeurs d'expression")
+# couleurs du niveau de la methylation
+colors <- c("cyan", "black", "red")
+cols <- colorRampPalette(colors)(20)
+breaks <- seq(0, 1, length.out = length(cols) + 1)
+main <- paste0("methylome TSS+/-", up_str)
+image(meth.sgce,col = cols,breaks=breaks,main=main)
+axis(1, (1:nrow(meth.sgce) - 1)/(nrow(meth.sgce) - 1), rownames(meth.sgce), 
+    las = 2)
+```
+
+```{r}
+comb.p <- read.table("data/pvalslk.txt")
+pval.c <- comb.p$V5
+plot(pval1,col="red",pch=19,main = "p-valeurs SLK vs p-valeurs de la regression")
+points(pval.c,col="blue",pch=19)
+legend("topleft",legend = c("p-valeur.reg","pval.slk"),col = c("red","blue"),pch=19)
+```
+
+```{r eval=FALSE}
+layout(matrix(1:2,1), respect=TRUE)
+foo = apply(data$meth_data, 1, function(meth){
+  # meth = data$meth_data[1,]
+  m = lm(data$trscr_data~meth)
+  beta = m$coefficients[[2]]
+  pval = anova(m)[1,5]
+  c(beta,pval)
+})
+
+plot(foo[1,], -log10(foo[2,]), main="Volcano plot", xlab="beta", ylab="-log10(pv)")
+
+names(data$trscr_data) == colnames(data$meth_data)
+foo = apply(data$meth_data, 1, function(meth){
+  m = MASS::rlm(data$trscr_data~meth, maxit=400)  
+  beta = m$coefficients[[2]]
+  pval = survey::regTermTest(m, "meth", null=NULL,df=Inf, method=c("Wald"))$p
+  c(beta,pval)
+})
+plot(foo[1,], -log10(foo[2,]))
+
+```
+
+
+# References
+
+[1] `memoise` package, https://cran.r-project.org/web/packages/memoise (april 2020).
+[2] TCGA project LUSC, https://portal.gdc.cancer.gov/projects/TCGA-LUSC (april 2020).
+[Jones_nrg_2012] http://epimed.univ-grenoble-alpes.fr/downloads/florent/01_momik/doc/Jones_nrg_2012.pdf
+[Weber_medsci_2008] http://epimed.univ-grenoble-alpes.fr/downloads/florent/01_momik/doc/Weber_medsci_2008.pdf
+[EPIC] chap. 2,pages 2-9, https://support.illumina.com/content/dam/illumina-support/documents/documentation/chemistry_documentation/infinium_assays/infinium_hd_methylation/infinium-hd-methylation-guide-15019519-01.pdf
+
+
+
+# Session Information
+
+```{r, results="verbatim"}
+sessionInfo()
+```
+
+
+
+
