@@ -231,101 +231,8 @@ expression = data$trscr_data
 mean_metylation = apply(t(data$meth_data),1,mean)
 m = lm(expression~mean_metylation)
 summary(m)
-# linear regression
-nb.pval <- length(rownames(data$meth_data))
-pval <- rep(NA,nb.pval)
-ml <- rep(NA,nb.pval)
-
-for(i in 1 : nb.pval){
-   ml <- lm(expression~data$meth_data[i,])
-   pval[i] <- summary(ml)$coefficients[2,4]
-}
-names(pval) <- rownames(data$meth_data)
-pval
 ```
 
-
-```{r}
-# construction d'un fichier bed
-prob <- rownames(data$meth_data)
-bed <- s_meth$platform[prob,1:3]
-bed$gene_symbol <- data$gene_symbol
-bed$pval <- pval
-bed$strand <- (rep(genes$strand[genes$gene_symbol=="AKR1E2"],length(prob)))
-```
-
-**SGCE ET PEG10**
-
-```{r}
-data.sgce <- mget_multiomic_data("SGCE", "TCGA-LUSC")
-data.peg10 <- mget_multiomic_data("PEG10", "TCGA-LUSC")
-meth.sgce <- data.sgce$meth_data
-meth.peg10 <- data.peg10$meth_data
-trscr.sgce <- data.sgce$trscr_data
-trscr.peg10 <- data.peg10$trscr_data
-
-# suppression des NA pour SGCE
-size.sgce <- length(data.peg10$trscr_data)
-for(i in 1:size.sgce){
-  for(j in 1:length(rownames(meth.sgce))){
-    if(is.na(meth.sgce[j,i])==TRUE){
-      meth.sgce[j,i] <- mean(meth.sgce[,i],na.rm = TRUE)
-    }
-  }
-}
-# suppression des NA pour PEG10
-for(i in 1:length(data.peg10$trscr_data)){
-  for(j in 1:length(rownames(meth.peg10))){
-    if(is.na(meth.peg10[j,i])==TRUE){
-      meth.peg10[j,i] <- mean(meth.peg10[,i],na.rm = TRUE)
-    }
-  }
-}
-which(is.na(meth.peg10))
-which(is.na(meth.peg10))
-
-# linear regression
-pval1 <- c()
-for(i in 1:length(rownames(meth.peg10))){
-  lm2 <- lm(meth.sgce[i,]~trscr.sgce)
-  pval1[i] <- summary(lm2)$coefficients[2,4]
-}
-```
-
-
-
-```{r}
-# construction d'un fichier bed
-prob.sgce <- rownames(meth.sgce)
-bed.sgce <- s_meth$platform[prob.sgce,1:3]
-bed.sgce$gene_symbol <- data.sgce$gene_symbol
-bed.sgce$pval <- pval1
-bed.sgce$strand <- (rep(genes$strand[genes$gene_symbol=="SGCE"],length(prob.sgce)))
-head(bed.sgce)
-prefix = "sgce"
-write.table(bed.sgce,file = paste0(prefix,".bed"),sep="\t",quote=FALSE,row.names = FALSE,col.names = TRUE)
-```
-```{r}
-par(mfrow=c(1,2))
-# les p-valeurs corrigées avec comb-p
-plot(1:length(trscr.sgce),trscr.sgce,xlab = "233",ylab="valeurs d'expression")
-# couleurs du niveau de la methylation
-colors <- c("cyan", "black", "red")
-cols <- colorRampPalette(colors)(20)
-breaks <- seq(0, 1, length.out = length(cols) + 1)
-main <- paste0("methylome TSS+/-", up_str)
-image(meth.sgce,col = cols,breaks=breaks,main=main)
-axis(1, (1:nrow(meth.sgce) - 1)/(nrow(meth.sgce) - 1), rownames(meth.sgce), 
-    las = 2)
-```
-
-```{r}
-comb.p <- read.table("data/pvalslk.txt")
-pval.c <- comb.p$V5
-plot(pval1,col="red",pch=19,main = "p-valeurs SLK vs p-valeurs de la regression")
-points(pval.c,col="blue",pch=19)
-legend("topleft",legend = c("p-valeur.reg","pval.slk"),col = c("red","blue"),pch=19)
-```
 
 ```{r eval=FALSE}
 layout(matrix(1:2,1), respect=TRUE)
@@ -349,6 +256,159 @@ foo = apply(data$meth_data, 1, function(meth){
 plot(foo[1,], -log10(foo[2,]))
 
 ```
+
+
+
+
+# Code below made by N. El Hadrami, R. Ismaïl, F. Bineta and D. Marame
+
+```{r}
+plot(1:length(data$trscr_data), data$trscr_data,
+  main=paste(data$gene_symbol, tcga_project), 
+  xlab=paste0(length(data$trscr_data), " samples"), 
+  ylab="log2(normalized expression)", 
+  yaxt="n"
+) 
+```
+
+
+
+$$mean\_methylation \sim expression$$
+```{r echo=TRUE, results=TRUE}
+expression = data$trscr_data
+mean_methylation = apply(t(data$meth_data), 1, mean)
+m = lm(mean_methylation ~ expression)
+summary(m)
+```
+
+
+**L’expression par un modèle linéaire intégrant toutes les sondes : expr ~ meth_1 + meth_2 + … + meth11 pour le gène AKR1E2**
+```{r}
+# linear model
+nb.pval <- length(rownames(data$meth_data))
+pval <- rep(NA,nb.pval)
+ml <- rep(NA,nb.pval)
+
+for(i in 1 : nb.pval){
+   ml <- lm(expression~data$meth_data[i,])
+   pval[i] <- summary(ml)$coefficients[2,4]
+}
+names(pval) <- rownames(data$meth_data)
+pval
+```
+
+
+```{r}
+# construction d'un fichier bed pour le gène AKR1E2
+prob <- rownames(data$meth_data)
+bed <- s_meth$platform[prob,1:3]
+bed$gene_symbol <- data$gene_symbol
+bed$pval <- pval
+bed$strand <- (rep(genes$strand[genes$gene_symbol=="AKR1E2"],length(prob)))
+```
+
+
+
+## SGCE ET PEG10
+
+**Récuperation des données omics du gene SGCE et PEG10**
+```{r}
+# données omics du gene SGCE
+data.sgce <- mget_multiomic_data("SGCE", "TCGA-LUSC")
+meth.sgce <- data.sgce$meth_data
+trscr.sgce <- data.sgce$trscr_data
+# données omics du gene PEG10
+data.peg10 <- mget_multiomic_data("PEG10", "TCGA-LUSC")
+meth.peg10 <- data.peg10$meth_data
+trscr.peg10 <- data.peg10$trscr_data
+
+# suppression des NA pour SGCE
+size.sgce <- length(data.peg10$trscr_data)
+for(i in 1:size.sgce){
+  for(j in 1:length(rownames(meth.sgce))){
+    if(is.na(meth.sgce[j,i])==TRUE){
+      meth.sgce[j,i] <- mean(meth.sgce[,i],na.rm = TRUE)
+    }
+  }
+}
+# suppression des NA pour PEG10
+for(i in 1:length(data.peg10$trscr_data)){
+  for(j in 1:length(rownames(meth.peg10))){
+    if(is.na(meth.peg10[j,i])==TRUE){
+      meth.peg10[j,i] <- mean(meth.peg10[,i],na.rm = TRUE)
+    }
+  }
+}
+which(is.na(meth.peg10))
+which(is.na(meth.peg10))
+
+# plot des données de transcription des deux gènes
+idx <- names(data.sgce$trscr_data)
+plot(data.sgce$trscr_data[idx]~data.peg10$trscr_data[idx])
+abline(lm(data.sgce$trscr_data[idx]~data.peg10$trscr_data[idx]), col="blue")
+m <- lm(data.sgce$trscr_data[idx]~data.peg10$trscr_data[idx])
+summary(m)
+```
+
+
+**Pour le gène SGCE, régression linéaire, contruction et exportation d'un fichier.bed correspondant aux 90 p-valeurs des 90 sondes**
+```{r}
+# regression linéaire gène SGCE
+pval1 <- c()
+for(i in 1:length(rownames(meth.peg10))){
+  lm2 <- lm(meth.sgce[i,]~trscr.sgce)
+  pval1[i] <- summary(lm2)$coefficients[2,4]
+}
+
+# construction d'un fichier bed à partir des p-values du gène SGCE
+prob.sgce <- rownames(meth.sgce)
+bed.sgce <- s_meth$platform[prob.sgce,1:3]
+bed.sgce$gene_symbol <- data.sgce$gene_symbol
+bed.sgce$pval <- pval1
+bed.sgce$strand <- (rep(genes$strand[genes$gene_symbol=="SGCE"],length(prob.sgce)))
+head(bed.sgce)
+prefix = "sgce"
+
+# exportation du fichier bed
+write.table(bed.sgce,file = paste0(prefix,".bed"),sep="\t",quote=FALSE,row.names = FALSE,col.names = TRUE)
+```
+
+
+**Visualisation du transcriptome et du methylome**
+```{r}
+par(mfrow=c(1,2))
+# les p-valeurs corrigées avec comb-p
+# transcriptome
+plot(1:length(trscr.sgce), trscr.sgce,
+  main=paste(data.sgce$gene_symbol, tcga_project), 
+  xlab=paste0(length(trscr.sgce), " samples"), 
+  ylab="log2(normalized expression)", 
+  yaxt="n"
+) 
+# methylome
+# couleurs du niveau de la methylation
+colors <- c("cyan", "black", "red")
+cols <- colorRampPalette(colors)(20)
+breaks <- seq(0, 1, length.out = length(cols) + 1)
+main <- paste0("methylome TSS+/-", up_str)
+image(meth.sgce,col = cols,breaks=breaks,main=main)
+axis(1, (1:nrow(meth.sgce) - 1)/(nrow(meth.sgce) - 1), rownames(meth.sgce), 
+    las = 2)
+```
+
+
+**Sortie graphique des p-valeurs avant et après comb-p**
+```{r}
+# recuparation du fichier slk après comb-p
+comb.p <- read.table("data/pvalslk.txt")
+pval.c <- comb.p$V5
+plot(pval1,col="red",pch=19,main = "p-valeurs SLK vs p-valeurs de la regression")
+points(pval.c,col="blue",pch=18)
+# Ajouter une légende
+legend("topleft", legend=c("pvalues lm", "pvalues comb-p (slk)"), col = c("red","blue"),pch= c(19,18))
+```
+
+
 
 
 # References
