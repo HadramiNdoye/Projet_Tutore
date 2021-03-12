@@ -231,6 +231,8 @@ expression = data$trscr_data
 mean_metylation = apply(t(data$meth_data),1,mean)
 m = lm(expression~mean_metylation)
 summary(m)
+plot(expression~mean_metylation)
+abline(m, col = "red")
 ```
 
 
@@ -271,6 +273,9 @@ plot(1:length(data$trscr_data), data$trscr_data,
 ) 
 ```
 
+Ce graphe illustre le logarithme de l’expression des gènes en fonction d’un échantillon de 223 individus. Ces individus sont triés par la valeur d’expression, c’est ce qui explique sa tendance sous de courbe. On remarque cette courbe est croissante.
+
+
 
 
 $$mean\_methylation \sim expression$$
@@ -279,10 +284,15 @@ expression = data$trscr_data
 mean_methylation = apply(t(data$meth_data), 1, mean)
 m = lm(mean_methylation ~ expression)
 summary(m)
+plot(mean_methylation~expression)
+abline(m, col = "blue")
 ```
 
+En pratiquant la régression linéaire sur la moyenne des données de méthylation (mean_methylation) et l’expression des gènes (expression) dans les deux sens, on observe clairement une corrélation négative entre les deux avec une p-valeur égale à 2.2e-16. En effet l’expression des gènes augment quand le niveau de méthylation devient bas et vis versa.
 
-**L’expression par un modèle linéaire intégrant toutes les sondes : expr ~ meth_1 + meth_2 + … + meth11 pour le gène AKR1E2**
+
+
+**L’expression par un modèle linéaire intégrant les données de méthylation de toutes les sondes : expr ~ meth_1 + meth_2 + … + meth11 pour le gène AKR1E2**
 ```{r}
 # linear model
 nb.pval <- length(rownames(data$meth_data))
@@ -311,7 +321,7 @@ bed$strand <- (rep(genes$strand[genes$gene_symbol=="AKR1E2"],length(prob)))
 
 ## SGCE ET PEG10
 
-**Récuperation des données omics du gene SGCE et PEG10**
+**Récuperation des données omics des gènes SGCE et PEG10**
 ```{r}
 # données omics du gene SGCE
 data.sgce <- mget_multiomic_data("SGCE", "TCGA-LUSC")
@@ -350,8 +360,11 @@ m <- lm(data.sgce$trscr_data[idx]~data.peg10$trscr_data[idx])
 summary(m)
 ```
 
+Avec une p-valeur inférieur à < 2.2e-16, on observe une corrélation positive entre l’expression des gènes SGCE et PEG10.
 
-**Pour le gène SGCE, régression linéaire, contruction et exportation d'un fichier.bed correspondant aux 90 p-valeurs des 90 sondes**
+
+
+**Pour le gène SGCE, application d'une régression linéaire, contruction et exportation d'un fichier.bed correspondant aux 90 p-valeurs des 90 sondes**
 ```{r}
 # regression linéaire gène SGCE
 pval1 <- c()
@@ -396,6 +409,13 @@ axis(1, (1:nrow(meth.sgce) - 1)/(nrow(meth.sgce) - 1), rownames(meth.sgce),
     las = 2)
 ```
 
+Le premier graphe illustre le logarithme de l’expression des gènes en fonction d’un échantillon de 223 individus. Ces individus sont triés par la valeur d’expression, c’est ce qui explique sa tendance sous de courbe. On remarque cette courbe est croissante.
+
+Le deuxième illustre un heatmap, les couleurs du niveau de la méthylation en fonction des 90 sondes du gène SGCE. Le gradient des couleurs va du rouge au cyan. Le cyan indique que la sonde est méthylé, le cyan indique qu’elle est déméthylée et le noir une couleur intermédiaire.
+Des régions ou patterns apparaissent sur le heatmap. Ces patterns sont identifiés par une couleur noire (intermédiaire). 
+
+
+## Comb-p
 
 **Sortie graphique des p-valeurs avant et après comb-p**
 ```{r}
@@ -407,6 +427,13 @@ points(pval.c,col="blue",pch=18)
 # Ajouter une légende
 legend("topleft", legend=c("pvalues lm", "pvalues comb-p (slk)"), col = c("red","blue"),pch= c(19,18))
 ```
+
+À l’issu du prétraitement à savoir :
+- la régression linéaire intégrant les 90 sondes du gène SGCE
+- la récupération du fichier .bed
+- l’application de la méthode comb-p
+nous avons illustré sur le me même graphe les p-valeurs issues de la régression linéaire en rouge et celles obtenues après comb-p en bleue.
+On remarque que les p-valeurs corrigées sont celles qui s’écartent des autres. Les p-valeurs ainsi obtenues on une tendance linéaire.
 
 
 
