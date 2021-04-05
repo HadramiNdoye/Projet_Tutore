@@ -181,16 +181,6 @@ length(data$trscr_data)
 head(data$trscr_data)
 ```
 
-
-
-
-
-
-
-
-
-
-
 # Visualisation
 
 ```{r}
@@ -290,8 +280,6 @@ abline(m, col = "blue")
 
 En pratiquant la régression linéaire sur la moyenne des données de méthylation (mean_methylation) et l’expression des gènes (expression) dans les deux sens, on observe clairement une corrélation négative entre les deux avec une p-valeur égale à 2.2e-16. En effet l’expression des gènes augment quand le niveau de méthylation devient bas et vis versa.
 
-
-
 **L’expression par un modèle linéaire intégrant les données de méthylation de toutes les sondes : expr ~ meth_1 + meth_2 + … + meth11 pour le gène AKR1E2**
 ```{r}
 # linear model
@@ -318,11 +306,10 @@ bed$strand <- (rep(genes$strand[genes$gene_symbol=="AKR1E2"],length(prob)))
 ```
 
 
-
 ## SGCE ET PEG10
 
 **Récuperation des données omics des gènes SGCE et PEG10**
-```{r}
+```{r results="verbatim"}
 # données omics du gene SGCE
 data.sgce <- mget_multiomic_data("SGCE", "TCGA-LUSC")
 meth.sgce <- data.sgce$meth_data
@@ -352,6 +339,7 @@ for(i in 1:length(data.peg10$trscr_data)){
 which(is.na(meth.peg10))
 which(is.na(meth.peg10))
 
+layout(1, respect=TRUE)
 # plot des données de transcription des deux gènes
 idx <- names(data.sgce$trscr_data)
 plot(data.sgce$trscr_data[idx]~data.peg10$trscr_data[idx])
@@ -363,15 +351,17 @@ summary(m)
 Avec une p-valeur inférieur à < 2.2e-16, on observe une corrélation positive entre l’expression des gènes SGCE et PEG10.
 
 
-
 **Pour le gène SGCE, application d'une régression linéaire, contruction et exportation d'un fichier.bed correspondant aux 90 p-valeurs des 90 sondes**
 ```{r}
 # regression linéaire gène SGCE
 pval1 <- c()
-for(i in 1:length(rownames(meth.peg10))){
+for(i in 1:length(rownames(meth.sgce))){
   lm2 <- lm(meth.sgce[i,]~trscr.sgce)
+  # lm2 <- lm(meth.peg10[i,]~trscr.peg10)
   pval1[i] <- summary(lm2)$coefficients[2,4]
 }
+
+names(pval1) = rownames(meth.peg10)
 
 # construction d'un fichier bed à partir des p-values du gène SGCE
 prob.sgce <- rownames(meth.sgce)
@@ -409,25 +399,93 @@ axis(1, (1:nrow(meth.sgce) - 1)/(nrow(meth.sgce) - 1), rownames(meth.sgce),
     las = 2)
 ```
 
-Le premier graphe illustre le logarithme de l’expression des gènes en fonction d’un échantillon de 223 individus. Ces individus sont triés par la valeur d’expression, c’est ce qui explique sa tendance sous de courbe. On remarque cette courbe est croissante.
+Le premier graphique illustre le logarithme de l’expression des gènes en fonction d’un échantillon de 223 individus. Ces individus sont triés par la valeur d’expression croissante, ce qui se voit sur la courbe : la courbe est croissante.
 
-Le deuxième illustre un heatmap, les couleurs du niveau de la méthylation en fonction des 90 sondes du gène SGCE. Le gradient des couleurs va du rouge au cyan. Le cyan indique que la sonde est méthylé, le cyan indique qu’elle est déméthylée et le noir une couleur intermédiaire.
-Des régions ou patterns apparaissent sur le heatmap. Ces patterns sont identifiés par une couleur noire (intermédiaire). 
+Le deuxième graphique est une heatmap, il représente le niveau de méthylation des 90 sondes selectiopnnées pour le gène SGCE pour les 233 patients. Le gradient des couleurs va du cyan au rouge en passant par le noir. Le cyan indique que la sonde est déméthylée, le rouge indique qu’elle est méthylée.
+Sur ce graphique (heatmap) on observe un gradient vertical, dans le premier tier à gauche de la figure, allant du cyan/noir (en bas) pour les patients dont la valeur d’expression de SGCE est faible au cyan (en haut) pour les patients dont le niveau d’expression de SGCE est fort.
 
 
 ## Comb-p
 
 **Sortie graphique des p-valeurs avant et après comb-p**
+
+**ATTENTION!!** ici il faut dire et donner la commande (comb-p) que vous avez lancé pour obtenir la (les) ficheirs de sortie.
+
+**TODO** De la même que vous avez afficher *pval.slk*, il faut afficher *pval.slk.fdr* lu dans le fichier `XXX.fdr.bed.gz`. Il n’y a pas besoind e lire le ficheir `XXX.slk.bed.gz` car le ficheir ``XXX.fdr.bed.gz` contient la mem info avec la colonne FDR en plus.
+
+
 ```{r}
+layout(matrix(c(1, 1, 2, 2, 2, 2), 2), respect=TRUE)
+plot(0)
+
 # recuparation du fichier slk après comb-p
 comb.p <- read.table("data/pvalslk.txt")
-pval.c <- comb.p$V5
-plot(pval1,col="red",pch=19,main = "p-valeurs SLK vs p-valeurs de la regression")
-points(pval.c,col="blue",pch=18)
+head(comb.p)
+# plot(comb.p[,4], pval1)
+
+pval.ewas <- comb.p$V4
+pval.slk <- comb.p$V5
+
+
+plot(-log10(pval.ewas),col="red",pch=19,main = "SGCE, p-valeurs SLK vs p-valeurs de la regression", ylim=c(0, max(-log10(pval.slk), -log10(pval.ewas))))
+points(-log10(pval.slk),col="blue",pch=18)
 # Ajouter une légende
-legend("topleft", legend=c("pvalues lm", "pvalues comb-p (slk)"), col = c("red","blue"),pch= c(19,18))
+legend("topright", legend=c("pvalues lm", "pvalues comb-p (slk)", "pvalues comb-p (fdr)"), col = c("red","blue", "purple"),pch= c(19,18))
 ```
 
+
+
+```{r}
+data = mget_multiomic_data("SGCE", tcga_project)
+par(mar=c(10, 4.1, 4.1, 2.1))
+layout(matrix(c(1, 1, 2, 2, 2, 2), 2), respect=TRUE)
+# transcriptome
+# par(mar=c(10, 4.1, 4.1, 2.1))
+plot(data$trscr_data, 1:length(data$trscr_data), 
+  main=paste(data$gene_symbol, tcga_project), 
+  xlab="log2(normalized expression)", 
+  ylab=paste0(length(data$trscr_data), " samples"), 
+  yaxt="n"
+) 
+# methylome
+colors = c("cyan", "black", "red")
+cols = colorRampPalette(colors)(20)
+breaks = seq(0, 1, length.out = length(cols) + 1)
+main = paste0("methylome TSS+/-", up_str)
+# par(mar=c(10, 4.1, 4.1, 2.1))
+image(data$meth_data, col=cols, breaks=breaks, xaxt="n", 
+    yaxt="n", main=main)
+axis(1, (1:nrow(data$meth_data) - 1)/(nrow(data$meth_data) - 1), rownames(data$meth_data), 
+    las = 2)
+```
+
+
+```{r}
+data = mget_multiomic_data("PEG10", tcga_project)
+par(mar=c(10, 4.1, 4.1, 2.1))
+layout(matrix(c(1, 1, 2, 2, 2, 2), 2), respect=TRUE)
+# transcriptome
+# par(mar=c(10, 4.1, 4.1, 2.1))
+plot(data$trscr_data, 1:length(data$trscr_data), 
+  main=paste(data$gene_symbol, tcga_project), 
+  xlab="log2(normalized expression)", 
+  ylab=paste0(length(data$trscr_data), " samples"), 
+  yaxt="n"
+) 
+# methylome
+colors = c("cyan", "black", "red")
+cols = colorRampPalette(colors)(20)
+breaks = seq(0, 1, length.out = length(cols) + 1)
+main = paste0("methylome TSS+/-", up_str)
+# par(mar=c(10, 4.1, 4.1, 2.1))
+image(data$meth_data, col=cols, breaks=breaks, xaxt="n", 
+    yaxt="n", main=main)
+axis(1, (1:nrow(data$meth_data) - 1)/(nrow(data$meth_data) - 1), rownames(data$meth_data), 
+    las = 2)
+```
+
+
+**ATTENTION** Reprendre la partie suivamnte : 
 À l’issu du prétraitement à savoir :
 - la régression linéaire intégrant les 90 sondes du gène SGCE
 - la récupération du fichier .bed
@@ -436,6 +494,44 @@ nous avons illustré sur le me même graphe les p-valeurs issues de la régressi
 On remarque que les p-valeurs corrigées sont celles qui s’écartent des autres. Les p-valeurs ainsi obtenues on une tendance linéaire.
 
 
+## Model avancé
+
+
+Lire "Asymétrie des génomes parentaux" :
+
+  http://epimed.univ-grenoble-alpes.fr/downloads/florent/01_momik/doc/Feil_medsci_2008.pdf
+
+
+```{r}
+meth.sgce
+meth.peg10
+
+rownames(meth.sgce) == rownames(meth.peg10)
+# colnames(meth.sgce) == colnames(meth.peg10)
+
+
+# regression linéaire gène SGCE + PEG10
+pval1 <- c()
+idx_sample = intersect(colnames(meth.sgce), colnames(meth.peg10))
+for(i in 1:length(rownames(meth.sgce))){
+  lm2 <- lm(meth.sgce[i,idx_sample]~trscr.peg10[idx_sample] + trscr.sgce[idx_sample])
+  pval1[i] <- summary(lm2)$coefficients[2,4]
+}
+
+names(pval1) = rownames(meth.peg10)
+
+# construction d'un fichier bed à partir des p-values du gène SGCE
+prob.sgcepeg10 <- rownames(meth.sgce)
+bed.sgcepeg10 <- s_meth$platform[prob.sgcepeg10,1:3]
+# bed.sgcepeg10$gene_symbol <- data.sgcepeg10$gene_symbol
+bed.sgcepeg10$pval <- pval1
+bed.sgcepeg10$strand <- (rep(genes$strand[genes$gene_symbol=="SGCE"],length(prob.sgcepeg10)))
+head(bed.sgcepeg10)
+prefix = "sgce"
+
+# exportation du fichier bed
+write.table(bed.sgcepeg10,file = paste0(prefix,".bed"),sep="\t",quote=FALSE,row.names = FALSE,col.names = TRUE)
+```
 
 
 # References
@@ -447,13 +543,8 @@ On remarque que les p-valeurs corrigées sont celles qui s’écartent des autre
 [EPIC] chap. 2,pages 2-9, https://support.illumina.com/content/dam/illumina-support/documents/documentation/chemistry_documentation/infinium_assays/infinium_hd_methylation/infinium-hd-methylation-guide-15019519-01.pdf
 
 
-
 # Session Information
 
 ```{r, results="verbatim"}
 sessionInfo()
 ```
-
-
-
-
