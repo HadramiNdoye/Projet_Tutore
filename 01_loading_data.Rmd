@@ -479,7 +479,7 @@ Pour exécuter comb-p il faut :
 
 **Sortie graphique des p-valeurs avant et après comb-p**
 
-```{r}
+```{r, fig.height=9, fig.width=9}
 layout(matrix(c(1, 1, 2, 2, 2, 2), 2), respect=TRUE)
 plot(0)
 
@@ -498,13 +498,14 @@ s <- l[l>=8]
 x1 <- c(which((-log10(pval.ewas))==s[1]),which((-log10(pval.ewas))==s[length(s)]))
 y1 <- c(8,8) 
 
-plot(-log10(pval.ewas),col="red",pch=19,main = "SGCE, p-valeurs SLK et FDR vs p-valeurs de la regression", ylim=c(0, max(-log10(pval.slk), -log10(pval.ewas))))
+plot(-log10(pval.ewas),col="red",pch=19,xaxt="n", xlab = "", main = "SGCE, p-valeurs SLK et FDR vs p-valeurs de la regression", ylim=c(0, max(-log10(pval.slk), -log10(pval.ewas))))
+axis(1,at=x,labels = rownames(meth.sgce),las=2, cex.axis = 0.5, cex.axis = 0.5)
+lines(x1,y1,type="o",col="green",pch=18)
 points(-log10(pval.slk),col="blue",pch=18)
 points(-log10(pval.fdr),col="purple",pch=18) 
 abline(h = -log10(10^-8), col="black", lwd=1, lty=2)
-lines(x1,y1,type="o",col="green",pch=18)
 # Ajouter une légende
-legend("topright", legend=c("pvalues lm", "pvalues comb-p (slk)", "pvalues comb-p (fdr)",  "--seed = 10⁻⁸", "region"), col = c("red","blue", "purple", "black", "green"),pch= c(19,18,18))
+legend("topright", legend=c("pvalues lm", "pvalues comb-p (slk)", "pvalues comb-p (fdr)",  "threshold", "region"), col = c("red","blue", "purple", "black", "green"),pch= c(19,18,18), lwd=c(0,0,0,1,2), lty = c(1,1,1,2,1))
 ```
 
 
@@ -512,7 +513,7 @@ legend("topright", legend=c("pvalues lm", "pvalues comb-p (slk)", "pvalues comb-
 
 **Sortie graphique des p-valeurs avant et après comb-p**
 
-```{r}
+```{r, fig.height=9, fig.width=9}
 layout(matrix(c(1, 1, 2, 2, 2, 2), 2), respect=TRUE)
 plot(0)
 
@@ -531,17 +532,18 @@ s <- l[l>=8]
 x1 <- c(which((-log10(pval.ewas))==s[1]),which((-log10(pval.ewas))==s[length(s)]))
 y1 <- c(8,8) 
 
-plot(-log10(pval.ewas),col="red",pch=19, main = "PEG10, p-valeurs SLK et FDR vs p-valeurs de la regression", ylim=c(0, max(-log10(pval.slk), -log10(pval.ewas))))
+plot(-log10(pval.ewas),col="red",pch=19,xaxt="n", xlab = "", main = "PEG10, p-valeurs SLK et FDR vs p-valeurs de la regression", ylim=c(0, max(-log10(pval.slk), -log10(pval.ewas))))
+axis(1,at=x,labels = rownames(meth.sgce),las=2, cex.axis = 0.5, cex.axis = 0.5)
+lines(x1,y1,type="o",col="green",pch=18)
 points(-log10(pval.slk),col="blue",pch=18)
 points(-log10(pval.fdr),col="purple",pch=18)
 abline(h = -log10(10^-8), col="black", lwd=1, lty=2)
-lines(x1,y1,type="o",col="green",pch=18)
 # Ajouter une légende
-legend("topright", legend=c("pvalues lm", "pvalues comb-p (slk)", "pvalues comb-p (fdr)",  "--seed = 10⁻⁸", "region"), col = c("red","blue", "purple", "black", "green"),pch= c(19,18,18))
+legend("topright", legend=c("pvalues lm", "pvalues comb-p (slk)", "pvalues comb-p (fdr)",  "threshold", "region"), col = c("red","blue", "purple", "black", "green"),pch= c(19,18,18), lwd=c(0,0,0,1,2), lty = c(1,1,1,2,1))
 ```
 
 
-```{r}
+```{r, fig.height=9, fig.width=9}
 # regression linéaire gène  SGCE + PEG10
 pval1 <- c()
 idx_sample = intersect(colnames(meth.sgce), colnames(meth.peg10))
@@ -578,15 +580,15 @@ y1 <- c(8,8)
 #names(pval1) = rownames(meth.peg10)
 ### plot 
 x <- 1:dim(meth)[1]
-plot(x,-log10(pval1),col="red",pch=20,main="p-valeur de fisher multiple  SGCE + PEG10")
-axis(1,at=x,labels = rownames(meth.peg10),las=2)
+plot(x,-log10(pval1),col="grey", xaxt="n", xlab = "", lwd = 5, pch=20, type = 'l', main="p-valeur de fisher multiple  SGCE + PEG10")
+axis(1,at=x,labels = rownames(meth.peg10),las=2, cex.axis = 0.5)
+lines(x1,y1,type="o",col="green",lwd =5, pch=18)
 points(-log10(pval2),col="blue",pch=18, type = 'l')
-points(-log10(pval3),col="purple",pch=18, type = 'l')
+points(-log10(pval3),col="red",pch=18, type = 'l')
 abline(h = -log10(10^-8), col="black", lwd=1, lty=2)
-lines(x1,y1,type="o",col="green",pch=18)
 
 # Ajouter une légende
-legend("topright", legend=c("p-values SGCE + PEG10", "p-values student SGCE", "p-values student PEG10",  "--seed = 10⁻⁸", "region"), col = c("red","blue", "purple", "black", "green"),pch= c(19,18,18))
+legend("topright", legend=c("p-values SGCE + PEG10", "p-values student SGCE", "p-values student PEG10",  "threshold", "region"), lwd=c(5,1,1,1,5), col = c("grey","blue", "red", "black", "green"))
 ```
 
 
