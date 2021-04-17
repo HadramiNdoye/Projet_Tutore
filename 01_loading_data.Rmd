@@ -2,7 +2,9 @@
 title: "Loading and organizing data in memory"
 author: "Cherki Amine, Florent Chuffart"
 date: "`r Sys.Date()`"
-output: html_document
+output:
+  html_document: default
+  pdf_document: default
 ---
 
 ```{r, echo=FALSE, eval=TRUE,warning=FALSE}
@@ -275,7 +277,7 @@ expression = data$trscr_data
 mean_methylation = apply(t(data$meth_data), 1, mean)
 m = lm(mean_methylation ~ expression)
 summary(m)
-plot(mean_methylation~expression)
+plot(mean_methylation~expression, main="Regression Linéaire")
 abline(m, col = "blue")
 ```
 
@@ -346,7 +348,7 @@ layout(1, respect=TRUE)
 
 # plot des données de transcription des deux gènes
 idx <- names(data.sgce$trscr_data)
-plot(data.sgce$trscr_data[idx]~data.peg10$trscr_data[idx])
+plot(data.sgce$trscr_data[idx]~data.peg10$trscr_data[idx], main="Regression Linéaire SGCE et PEG10")
 abline(lm(data.sgce$trscr_data[idx]~data.peg10$trscr_data[idx]), col="blue")
 m <- lm(data.sgce$trscr_data[idx]~data.peg10$trscr_data[idx])
 summary(m)
@@ -498,14 +500,18 @@ s <- l[l>=8]
 x1 <- c(which((-log10(pval.ewas))==s[1]),which((-log10(pval.ewas))==s[length(s)]))
 y1 <- c(8,8) 
 
-plot(-log10(pval.ewas),col="red",pch=19,xaxt="n", xlab = "", main = "SGCE, p-valeurs SLK et FDR vs p-valeurs de la regression", ylim=c(0, max(-log10(pval.slk), -log10(pval.ewas))))
+idx_sample <- intersect(colnames(meth.sgce), colnames(meth.peg10))
+meth <- meth.sgce[,idx_sample]
+x <- 1:dim(meth)[1]
+
+plot(x,-log10(pval.ewas),col="red",pch=19,xaxt="n", xlab = "sondes", ylab = "-log10(p-values)", main = "SGCE, p-valeurs SLK et FDR vs p-valeurs de la regression", ylim=c(0, max(-log10(pval.slk), -log10(pval.ewas))))
 axis(1,at=x,labels = rownames(meth.sgce),las=2, cex.axis = 0.5, cex.axis = 0.5)
 lines(x1,y1,type="o",col="green",pch=18)
 points(-log10(pval.slk),col="blue",pch=18)
 points(-log10(pval.fdr),col="purple",pch=18) 
 abline(h = -log10(10^-8), col="black", lwd=1, lty=2)
 # Ajouter une légende
-legend("topright", legend=c("pvalues lm", "pvalues comb-p (slk)", "pvalues comb-p (fdr)",  "threshold", "region"), col = c("red","blue", "purple", "black", "green"),pch= c(19,18,18), lwd=c(0,0,0,1,2), lty = c(1,1,1,2,1))
+legend("topright", legend=c("pvalues lm (ewas)", "pvalues comb-p (slk)", "pvalues comb-p (fdr)",  "threshold", "region"), col = c("red","blue", "purple", "black", "green"),pch= c(19,18,18), lwd=c(0,0,0,1,2), lty = c(1,1,1,2,1))
 ```
 
 
@@ -532,18 +538,22 @@ s <- l[l>=8]
 x1 <- c(which((-log10(pval.ewas))==s[1]),which((-log10(pval.ewas))==s[length(s)]))
 y1 <- c(8,8) 
 
-plot(-log10(pval.ewas),col="red",pch=19,xaxt="n", xlab = "", main = "PEG10, p-valeurs SLK et FDR vs p-valeurs de la regression", ylim=c(0, max(-log10(pval.slk), -log10(pval.ewas))))
+idx_sample <- intersect(colnames(meth.sgce), colnames(meth.peg10))
+meth <- meth.sgce[,idx_sample]
+x <- 1:dim(meth)[1]
+
+plot(-log10(pval.ewas),col="red",pch=19,xaxt="n", xlab = "sondes", ylab = "-log10(p-values)", main = "PEG10, p-valeurs SLK et FDR vs p-valeurs de la regression", ylim=c(0, max(-log10(pval.slk), -log10(pval.ewas))))
 axis(1,at=x,labels = rownames(meth.sgce),las=2, cex.axis = 0.5, cex.axis = 0.5)
 lines(x1,y1,type="o",col="green",pch=18)
 points(-log10(pval.slk),col="blue",pch=18)
 points(-log10(pval.fdr),col="purple",pch=18)
 abline(h = -log10(10^-8), col="black", lwd=1, lty=2)
 # Ajouter une légende
-legend("topright", legend=c("pvalues lm", "pvalues comb-p (slk)", "pvalues comb-p (fdr)",  "threshold", "region"), col = c("red","blue", "purple", "black", "green"),pch= c(19,18,18), lwd=c(0,0,0,1,2), lty = c(1,1,1,2,1))
+legend("topright", legend=c("pvalues lm (ewas)", "pvalues comb-p (slk)", "pvalues comb-p (fdr)",  "threshold", "region"), col = c("red","blue", "purple", "black", "green"),pch= c(19,18,18), lwd=c(0,0,0,1,2), lty = c(1,1,1,2,1))
 ```
 
 
-```{r, fig.height=9, fig.width=9}
+```{r, fig.height=8, fig.width=10}
 # regression linéaire gène  SGCE + PEG10
 pval1 <- c()
 idx_sample = intersect(colnames(meth.sgce), colnames(meth.peg10))
@@ -580,7 +590,7 @@ y1 <- c(8,8)
 #names(pval1) = rownames(meth.peg10)
 ### plot 
 x <- 1:dim(meth)[1]
-plot(x,-log10(pval1),col="grey", xaxt="n", xlab = "", lwd = 5, pch=20, type = 'l', main="p-valeur de fisher multiple  SGCE + PEG10")
+plot(x,-log10(pval1),col="grey", xaxt="n", xlab = "sondes", ylab = "-log10(p-values)", lwd = 5, pch=20, type = 'l', main="p-valeur de fisher multiple  SGCE + PEG10")
 axis(1,at=x,labels = rownames(meth.peg10),las=2, cex.axis = 0.5)
 lines(x1,y1,type="o",col="green",lwd =5, pch=18)
 points(-log10(pval2),col="blue",pch=18, type = 'l')
