@@ -3,8 +3,8 @@ title: "Loading and organizing data in memory"
 author: "Cherki Amine, Florent Chuffart"
 date: "`r Sys.Date()`"
 output:
-  html_document: default
   pdf_document: default
+  html_document: default
 ---
 
 ```{r, echo=FALSE, eval=TRUE,warning=FALSE}
@@ -67,7 +67,7 @@ we compute gene/probe index and store it in `gene_indexed_probes` global variabl
 
 `gene_indexed_probes` is a list named by gene names and containing vector of probe names.
 
-```{r}
+```{r,warning=FALSE}
 genes = mreadRDS("genes/bed_grch38_epimeddb.rds")
 genes = genes[rownames(genes)%in%rownames(s_trscr$data),]
 if (!exists("gene_indexed_probes")) {
@@ -257,13 +257,22 @@ plot(foo[1,], -log10(foo[2,]))
 # Code below made by N. El Hadrami, R. Ismaïl, F. Bineta and D. Marame
 
 ## AKR1E2
-```{r}
+```{r,fig.width=9}
+par(mfrow=c(1,2))
 plot(1:length(data$trscr_data), data$trscr_data,
-  main=paste(data$gene_symbol, tcga_project), 
+  main=paste("AKR1E2", tcga_project), 
   xlab=paste0(length(data$trscr_data), " samples"), 
   ylab="log2(normalized expression)", 
   yaxt="n"
-) 
+)
+# histogramme et densité pour le gene AKR1E2
+hist(data$trscr_data,probability = T,
+     xlab=paste0(length(data$trscr_data), " samples"),
+     main="Histogramme et densité pour AKR1E2"
+)
+lines(density(data$trscr_data),
+     col="blue"
+)
 ```
 
 Ce graphe illustre le logarithme de l’expression des gènes en fonction d’un échantillon de 223 individus. Ces individus sont triés par la valeur d’expression, c’est ce qui explique sa tendance sous- forme de courbe. On remarque cette courbe est croissante.
@@ -348,7 +357,10 @@ layout(1, respect=TRUE)
 
 # plot des données de transcription des deux gènes
 idx <- names(data.sgce$trscr_data)
-plot(data.sgce$trscr_data[idx]~data.peg10$trscr_data[idx], main="Regression Linéaire SGCE et PEG10")
+plot(data.sgce$trscr_data[idx]~data.peg10$trscr_data[idx], 
+     main="Regression Linéaire SGCE et PEG10",
+     xlab="valeur d'expression du gene PEG10",
+     ylab="valeur d'expression SGCE")
 abline(lm(data.sgce$trscr_data[idx]~data.peg10$trscr_data[idx]), col="blue")
 m <- lm(data.sgce$trscr_data[idx]~data.peg10$trscr_data[idx])
 summary(m)
@@ -565,7 +577,6 @@ for(i in 1:length(rownames(meth.sgce))){
   pval1[i] <- pf(lm2$fstatistic[1],lm2$fstatistic[2],lm2$fstatistic[3], lower.tail = FALSE)
 }
 
-
 # SGCE
 pval2 <- c()
 for(i in 1:length(rownames(meth.sgce))){
@@ -579,7 +590,6 @@ for(i in 1:length(rownames(meth.peg10))){
   lm3 <- lm(meth.peg10[i,]~trscr.peg10)
   pval3[i] <- summary(lm3)$coefficients[2,4]
 }
-
 
 #ajout  de la région
 l <- -log10(pval1)
@@ -596,7 +606,6 @@ lines(x1,y1,type="o",col="green",lwd =5, pch=18)
 points(-log10(pval2),col="blue",pch=18, type = 'l')
 points(-log10(pval3),col="red",pch=18, type = 'l')
 abline(h = -log10(10^-8), col="black", lwd=1, lty=2)
-
 # Ajouter une légende
 legend("topright", legend=c("p-values SGCE + PEG10", "p-values student SGCE", "p-values student PEG10",  "threshold", "region"), lwd=c(5,1,1,1,5), col = c("grey","blue", "red", "black", "green"))
 ```
@@ -611,35 +620,38 @@ Lire "Asymétrie des génomes parentaux" :
   http://epimed.univ-grenoble-alpes.fr/downloads/florent/01_momik/doc/Feil_medsci_2008.pdf
 
 
-```{r}
-meth.sgce
-meth.peg10
-
-rownames(meth.sgce) == rownames(meth.peg10)
-# colnames(meth.sgce) == colnames(meth.peg10)
-
-
-# regression linéaire gène SGCE + PEG10
-pval1 <- c()
-idx_sample = intersect(colnames(meth.sgce), colnames(meth.peg10))
-for(i in 1:length(rownames(meth.sgce))){
-  lm2 <- lm(meth.sgce[i,idx_sample]~trscr.peg10[idx_sample] + trscr.sgce[idx_sample])
-  pval1[i] <- summary(lm2)$coefficients[2,4]
-}
-
-names(pval1) = rownames(meth.peg10)
-
-# construction d'un fichier bed à partir des p-values du gène SGCE
+```{r,fig.height=8, fig.width=10}
+library(tidyverse)
 prob.sgcepeg10 <- rownames(meth.sgce)
 bed.sgcepeg10 <- s_meth$platform[prob.sgcepeg10,1:3]
-# bed.sgcepeg10$gene_symbol <- data.sgcepeg10$gene_symbol
+bed.sgcepeg10$gene_symbol <- data.sgce$gene_symbol
 bed.sgcepeg10$pval <- pval1
 bed.sgcepeg10$strand <- (rep(genes$strand[genes$gene_symbol=="SGCE"],length(prob.sgcepeg10)))
 head(bed.sgcepeg10)
-prefix = "sgce"
-
+prefix = "sgce_peg10"
 # exportation du fichier bed
 write.table(bed.sgcepeg10,file = paste0(prefix,".bed"),sep="\t",quote=FALSE,row.names = FALSE,col.names = TRUE)
+comb.region <- read.table("data/dmrbycombp1000_SGCE_PEG10.regions .bed")
+# Identification des sondes
+prob.sgce <- rownames(meth.sgce)
+index_sgce <- s_meth$platform[prob.sgce,1:3]
+prob.region <- rownames(filter(index_sgce,Start >= comb.region$V2,End <= comb.region$V3))
+ind.region <- which(rownames(meth.peg10)==prob.region)
+start.icr <- 94656225
+end.icr <- 94658648
+prob.icr <- rownames(filter(index_sgce,Start >= start.icr,End <= end.icr))
+ind.icr <- which(rownames(meth.peg10)==prob.icr)
+
+x.region <- ind.region
+y.region <- c(rep(8,length(ind.region)))
+plot(x,-log10(pval1),col="grey", xaxt="n", xlab = "sondes", ylab = "-log10(p-values)", lwd = 5, pch=20, type = 'l', main="p-valeur de fisher multiple  SGCE + PEG10")
+lines(x.region,y.region,type="o",col="green",lwd =5, pch=18)
+axis(1,at=x,labels = rownames(meth.peg10),las=2, cex.axis = 0.5)
+points(-log10(pval2),col="blue",pch=18, type = 'l')
+points(-log10(pval3),col="red",pch=18, type = 'l')
+abline(h = -log10(10^-8), col="black", lwd=1, lty=2)
+# Ajouter une légende
+legend("topright", legend=c("p-values SGCE + PEG10", "p-values student SGCE", "p-values student PEG10",  "threshold", "region"), lwd=c(5,1,1,1,5), col = c("grey","blue", "red", "black", "green"))
 ```
 
 
