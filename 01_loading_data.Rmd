@@ -3,8 +3,8 @@ title: "Loading and organizing data in memory"
 author: "Cherki Amine, Florent Chuffart"
 date: "`r Sys.Date()`"
 output:
-  pdf_document: default
   html_document: default
+  pdf_document: default
 ---
 
 ```{r, echo=FALSE, eval=TRUE,warning=FALSE}
@@ -258,24 +258,27 @@ plot(foo[1,], -log10(foo[2,]))
 
 ## AKR1E2
 ```{r,fig.width=9}
+library(RColorBrewer)
+cols = brewer.pal(3, "Set1")
+data.akr1e2 = mget_multiomic_data("AKR1E2","TCGA-LUSC")
 par(mfrow=c(1,2))
-plot(1:length(data$trscr_data), data$trscr_data,
+plot(1:length(data.akr1e2$trscr_data), data.akr1e2$trscr_data,
   main=paste("AKR1E2", tcga_project), 
-  xlab=paste0(length(data$trscr_data), " samples"), 
+  xlab=paste0(length(data.akr1e2$trscr_data), " samples"), 
   ylab="log2(normalized expression)", 
   yaxt="n"
 )
-# histogramme et densité pour le gene AKR1E2
-hist(data$trscr_data,probability = T,
-     xlab=paste0(length(data$trscr_data), " samples"),
-     main="Histogramme et densité pour AKR1E2"
+hist(data.akr1e2$trscr_data,probability = TRUE,xlim=c(0,13),ylim=c(0,0.30),
+     xlab=paste0(length(data.akr1e2$trscr_data), " samples"),
+     main="Histogramme et densite du gene AKR1E2"
 )
-lines(density(data$trscr_data),
-     col="blue"
+lines(density(data.akr1e2$trscr_data),
+     col=cols[1]
 )
 ```
 
 Ce graphe illustre le logarithme de l’expression des gènes en fonction d’un échantillon de 223 individus. Ces individus sont triés par la valeur d’expression, c’est ce qui explique sa tendance sous- forme de courbe. On remarque cette courbe est croissante.
+
 
 
 
@@ -368,7 +371,73 @@ summary(m)
 
 Avec une p-valeur inférieur à 2.2e-16, on observe une corrélation positive entre l’expression des gènes SGCE et PEG10.
 
+## Statistque descriptive du gene SGCE ET PEG10
 
+## transcription
+
+```{r,fig.width=9}
+data.sgce= mget_multiomic_data("SGCE","TCGA-LUSC")
+data.peg10 = mget_multiomic_data("PEG10","TCGA-LUSC")
+par(mfrow=c(2,2))
+plot(1:length(data.sgce$trscr_data), data.sgce$trscr_data,
+  main=paste("SGCE", tcga_project),
+  xlab=paste0(length(data.sgce$trscr_data), " samples"),
+  ylab="log2(normalized expression)",
+  yaxt="n"
+)
+hist(data.sgce$trscr_data,probability = TRUE,xlim=c(6,15),ylim = c(0,0.4),
+     xlab=paste0(length(data.sgce$trscr_data), " samples"),
+     main="Histogramme et densite du gene SGCE"
+)
+lines(density(data.sgce$trscr_data),
+     col=cols[2]
+)
+# PEG10
+plot(1:length(data.peg10$trscr_data), data.peg10$trscr_data,
+  main=paste("PEG10", tcga_project),
+  xlab=paste0(length(data.peg10$trscr_data), " samples"),
+  ylab="log2(normalized expression)",
+  yaxt="n"
+)
+hist(data.peg10$trscr_data,probability = TRUE,
+      xlab=paste0(length(data.peg10$trscr_data), " samples"),
+     main="Histogramme et densite du gene PEG10"
+)
+lines(density(data.peg10$trscr_data),
+      col=cols[3]
+)
+```
+
+## Methylation des genes AKR1E2, SGCE et PEG10
+
+```{r,fig.width=9}
+# AKR1E2
+meth.akr1e2 <- data.akr1e2$meth_data
+size.akr1e2 <- dim(meth.akr1e2)[1]
+cols <- brewer.pal(size.akr1e2,"Paired")
+plot(density(meth.akr1e2[1,]),col=cols,main="Courbe de densité du gene AKR1E2")
+for(i in 2:size.akr1e2){
+  dens.akr1e2 <- density(meth.akr1e2[i,])
+  lines(dens.akr1e2,col=cols[i])
+}
+legend("topleft",legend=rownames(meth.akr1e2),col=cols,lwd = 2)
+# SGCE ET PEG10
+plot(density(meth.sgce[1,]),col=cols[1],ylim=c(0,15),
+     main="Courbe de densité du gene SGCE")
+for(i in 2:size.akr1e2){
+  dens.sgce <- density(meth.sgce[i,])
+  lines(dens.sgce,col=cols[i])
+}
+legend("topright",legend=rownames(meth.sgce[1:11,]),col=cols,lwd = 2)
+
+plot(density(meth.peg10[1,]),col=cols[1],ylim=c(0,15),
+     main="Courbe de densité du gene PEG10")
+for(i in 2:size.akr1e2){
+  dens.peg10 <- density(meth.peg10[i,])
+  lines(dens.peg10,col=cols[i])
+}
+legend("topright",legend=rownames(meth.peg10[1:11,]),col=cols,lwd = 2)
+```
 **Pour le gène SGCE, application d'une régression linéaire, contruction et exportation d'un fichier.bed correspondant aux 90 p-valeurs des 90 sondes**
 ```{r}
 # regression linéaire gène SGCE
@@ -533,7 +602,7 @@ legend("topright", legend=c("pvalues lm (ewas)", "pvalues comb-p (slk)", "pvalue
 
 ```{r, fig.height=9, fig.width=9}
 layout(matrix(c(1, 1, 2, 2, 2, 2), 2), respect=TRUE)
-plot(0)
+plot(0) 
 
 # recuparation du fichier dmrbycombp1000_PEG10.fdr.bed après comb-p
 comb.p <- read.table("data/dmrbycombp1000_PEG10.fdr.bed")
