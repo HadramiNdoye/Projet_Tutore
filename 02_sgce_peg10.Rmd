@@ -1,0 +1,513 @@
+---
+title: "Multi-omic analysis of epigenetic regulation of gene expression"
+subtitle: "AKR1E2, SGCE and PEG10 case study in TCGA-LUSC"
+author: "Bineta Faye, El Hadrami n’DOYE, Ismaïl Ramdé, Marame Diagne, Florent Chuffart"
+date: "`r Sys.Date()`"
+output:
+  rmarkdown::html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: true
+---
+
+
+
+
+
+
+```{r, echo=FALSE, eval=TRUE,warning=FALSE}
+knitr::opts_chunk$set(collapse=TRUE, comment = "#>", fig.width=9, fig.height=6, eval=TRUE, echo=FALSE, results="hide")
+if (!exists("mread.table")) mread.table = memoise::memoise(read.table)
+```
+
+Since `R` widely works in memory space, this vignette loads and organises data in the memory.
+
+Memory cache mechanism is mainly based on: 
+
+  - memoisation using `memoise` package [1]
+  - testing if variable name exists in environment
+
+
+
+# Prerequisits
+
+Customs packages:
+
+- https://github.com/fchuffar/epimedtools (for a verbose apply)
+
+# Defining global parameters
+
+We define following global parameters : 
+
+- `tcga_project` the targeted TCGA cancer study name.
+- `gene_symbol` the gene symbol of the gene that we want to study.
+
+```{r echo=TRUE}
+tcga_project="TCGA-LUSC"
+# gene_symbol =  "H1F0"
+# gene_symbol = "AKR1B10"
+gene_symbol = "AKR1E2"
+```
+  
+# Load studies
+
+We load data omics data for the TCGA project `r tcga_project` [2] as well.
+
+  - `s_cnv  ` the *copy number variation* study
+  - `s_meth ` the *methylome*  study
+  - `s_trscr` the *transcriptome* study
+
+These variables will not ne directly manipulate, they need to be preprocessed according to gene promoter definitions.
+
+```{r label="loading studies", echo=TRUE}
+if (!exists("mreadRDS")) mreadRDS = memoise::memoise(readRDS)
+s_cnv   = mreadRDS(paste0("tcga_studies/study_", tcga_project, "_cnv.rds"))
+s_meth  = mreadRDS(paste0("tcga_studies/study_", tcga_project, "_meth.rds"))
+s_trscr = mreadRDS(paste0("tcga_studies/study_", tcga_project, "_trscr.rds"))
+```
+
+# Dynamicaly building of global gene/probe index
+
+Since, many methylation probes could be associated to a given gene promoter  (see 
+fig. 2 [Jones_nrg_2012](http://epimed.univ-grenoble-alpes.fr/downloads/florent/01_momik/doc/Jones_nrg_2012.pdf) and 
+fig. 2 [Weber_medsci_2008](http://epimed.univ-grenoble-alpes.fr/downloads/florent/01_momik/doc/Weber_medsci_2008.pdf)),
+we compute gene/probe index and store it in `gene_indexed_probes` global variable.
+
+`gene_indexed_probes` is a list named by gene names and containing vector of probe names.
+
+```{r,warning=FALSE}
+genes = mreadRDS("genes/bed_grch38_epimeddb.rds")
+genes = genes[rownames(genes)%in%rownames(s_trscr$data),]
+if (!exists("gene_indexed_probes")) {
+  # params
+  pf_chr_colname = "Chromosome"
+  pf_pos_colname = "Start"
+  up_str = 2000
+  dwn_str = 2000  
+  if (!exists("pf_orig")) {
+    pf_orig = s_meth$platform
+    pf_orig = pf_orig[order(pf_orig[[pf_chr_colname]],pf_orig[[pf_pos_colname]]), ]
+  }  
+  ## index meth probes by chr
+  chrs = unique(genes[,1])
+  chrs_indexed_methpf = lapply(chrs, function(chr) {
+    print(chr)
+    idx = rownames(pf_orig)[!is.na(pf_orig[[pf_chr_colname]]) & pf_orig[[pf_chr_colname]]==chr]  
+    ret = pf_orig[idx,]
+    return(ret)
+  })
+  names(chrs_indexed_methpf) = chrs
+  ## index probes by gene name
+  print("# indexing probes by gene name")
+  gene_indexed_probes = epimedtools::monitored_apply(genes, 1, function(gene) {
+    # gene = randomall_genes[1,]genes=readRDS("~/fchuffar/projects/genes/bed_grch38_epimeddb.rds")
+    # print(gene)
+    chr = gene[[1]]
+    meth_platform = chrs_indexed_methpf[[chr]]
+    ret = dmprocr::get_probe_names(gene, meth_platform, pf_chr_colname, pf_pos_colname, up_str, dwn_str) 
+    return(ret)
+  })
+  barplot(table(sapply(gene_indexed_probes, length)))
+  gene_indexed_probes = gene_indexed_probes[sapply(gene_indexed_probes, length)>0]
+}
+```
+
+```{r echo=TRUE, results=TRUE}
+head(names(gene_indexed_probes))
+length(gene_indexed_probes)
+gene_indexed_probes[[gene_symbol]]
+```
+
+# The `mget_multiomic_data` function
+
+We define a usefull function `mget_multiomic_data(gene, tcga_project)` that computes multiomic data of targeted TCGA cancer study for a given gene.
+
+**Warning**, `mget_multiomic_data` uses `gene_indexed_probes` global variable without passing it as an argument of the function. This is imposed by the memoisation mechanism.
+
+```{r label="mget_multiomic_data"}
+if (!exists("mget_multiomic_data")) {
+  # debugged and optimized version of dmprocr::trscr_meth_analysis https://github.com/bcm-uga/dmprocr
+  preproc_omics_data = function(gene_symbol, s_cnv, s_meth, s_trscr, gene_indexed_probes) {
+      meth_probe_idx = intersect(gene_indexed_probes[[gene_symbol]], rownames(s_meth$data))
+      if (length(meth_probe_idx) <= 1) {
+          return(NULL)
+      }
+      meth_data = s_meth$data[meth_probe_idx, ]
+      meth_data = meth_data[, apply(is.na(meth_data), 2, sum)/nrow(meth_data) < 0.5]
+      meth_data = meth_data[apply(is.na(meth_data), 1, sum)/ncol(meth_data) < 0.5, ]
+      # dim(meth_data)
+      meth_probe_idx = rownames(meth_data)
+      if (!is.null(s_cnv)) {
+          idx_sample = intersect (
+            intersect(
+              colnames(s_trscr$data)[order(s_trscr$data[gene_symbol,])], 
+              colnames(meth_data)
+            ),
+            colnames(s_cnv$data)[abs(s_cnv$data[gene_symbol, ]) < 0.2]
+          )
+      } else {
+          idx_sample = intersect(
+            colnames(s_trscr$data)[order(s_trscr$data[gene_symbol,])], 
+            colnames(meth_data)
+          )
+      }
+      if (length(idx_sample) <= 1) {
+          return(NULL)
+      }
+      meth_data = meth_data[, idx_sample]
+      trscr_data = s_trscr$data[gene_symbol, idx_sample]
+      ret = list(
+        gene_symbol=gene_symbol, 
+        study_name=s_trscr$stuffs$name, 
+        meth_data=meth_data,
+        trscr_data=trscr_data
+      )
+      if (!all(all(names(trscr_data) == colnames(meth_data)))) stop("Sample are not ordered in trscr_data like in meth_data")
+      return(ret)
+  }
+  get_multiomic_data = function(gene_symbol, tcga_project) {
+    # warning: gene_indexed_probes is a global variable
+    s_cnv   = mreadRDS(paste0("tcga_studies/study_", tcga_project, "_cnv.rds"))
+    s_meth  = mreadRDS(paste0("tcga_studies/study_", tcga_project, "_meth.rds"))
+    s_trscr = mreadRDS(paste0("tcga_studies/study_", tcga_project, "_trscr.rds"))
+    preproc_omics_data(gene_symbol, s_cnv, s_meth, s_trscr, gene_indexed_probes)
+    
+  }
+  mget_multiomic_data = memoise::memoise(get_multiomic_data)
+}
+```
+
+
+
+
+
+# Descriptive statistics 
+
+## Distribution of expression 
+
+```{r,fig.width=9}
+distrib_expr = function(gene, tcga_project) {
+  d = mget_multiomic_data(gene, tcga_project)
+  den = density(d$trscr_data)
+  layout(matrix(1:2,1), respect=TRUE)
+  plot(1:length(d$trscr_data), d$trscr_data,
+    main=paste(gene, " ", tcga_project, " transcriptome"), 
+    xlab=paste0(length(d$trscr_data), " samples"), 
+    ylab="log2(normalized counts + 1)", 
+    yaxt="n"
+  )
+  hist(d$trscr_data, 
+    probability = TRUE, 
+    # xlim=c(0,13), 
+    ylim=c(0, max(den$y)),
+    xlab=paste0(length(d$trscr_data), " samples"),
+    main=paste0("Histogram and density")
+  )
+  lines(den, col=2)  
+  return(d)
+}
+
+tcga_project = "TCGA-LUSC"
+gene = "AKR1E2"
+data.akr1e2 = distrib_expr(gene, tcga_project)
+gene = "SGCE"
+data.sgce = distrib_expr(gene, tcga_project)
+gene = "PEG10"
+data.peg10 = distrib_expr(gene, tcga_project)
+```
+
+```{r}
+for (gene in c("AKR1E2", "SGCE", "PEG10")) {
+  pdf(paste0("fig_distrib_expr_", gene, ".pdf"), width=10, height=5)
+  distrib_expr(gene, tcga_project)
+  dev.off()  
+}
+```
+
+## SCGE and PEG10 expression correlation
+
+```{r results="verbatim"}
+layout(1, respect=TRUE)
+cor_expr2g = function(gene1, gene2, tcga_project) {
+  d1 = mget_multiomic_data(gene1, tcga_project)
+  d2 = mget_multiomic_data(gene2, tcga_project)
+  idx = intersect(names(d1$trscr_data), names(d2$trscr_data))
+  m = lm(d1$trscr_data[idx]~d2$trscr_data[idx])
+  sm = summary(m)
+  pval = pf(sm$fstatistic[1],sm$fstatistic[2],sm$fstatistic[3], lower.tail=FALSE)
+  plot(d2$trscr_data[idx], d1$trscr_data[idx], 
+    main=paste0(gene1, "~", gene2, " R^2=", signif(sm$r.squared, 2), " pval=", signif(pval, 2)),
+    xlab=paste0(gene1, "expression"),
+    ylab=paste0(gene2, "expression")
+  )
+  abline(m, col=2)
+  summary(m)
+}
+gene1 = "SGCE"
+gene2 = "PEG10"
+cor_expr2g(gene1, gene2, tcga_project)
+```
+```{r}
+pdf(paste0("fig_cor_", gene1, "_", gene2, ".pdf"), width=5, height=5)
+cor_expr2g("SGCE", "PEG10", tcga_project)
+dev.off()
+```
+
+
+## Methylation values
+
+
+```{r,fig.width=9, fig.height=6}
+den_meth = function() {
+  layout(matrix(1:3,1), respect=TRUE)
+  for (gene in c("AKR1E2", "SGCE", "PEG10")) {
+    data = mget_multiomic_data(gene, tcga_project)
+    methd <- data$meth_data
+    den = density(methd, na.rm=TRUE) 
+    plot(den, main=paste0(gene, " methylation values"))
+  }
+}
+den_meth()
+pdf(paste0("fig_den_meth.pdf"), width=15, height=5)
+den_meth()
+dev.off()
+```
+
+
+
+## Multiomic analysis
+
+
+
+```{r}
+momic_pattern = function(gene, tcga_project) {  
+  data = mget_multiomic_data(gene, tcga_project)
+  par(mar=c(10, 4.1, 4.1, 2.1))
+  layout(matrix(c(1, 1, 2, 2, 2, 2), 2), respect=TRUE)
+  # transcriptome
+  # par(mar=c(10, 4.1, 4.1, 2.1))
+  plot(data$trscr_data, 1:length(data$trscr_data), 
+    main=paste(data$gene_symbol, tcga_project), 
+    xlab="log2(normalized expression)", 
+    ylab=paste0(length(data$trscr_data), " samples"), 
+    yaxt="n"
+  ) 
+  # methylome
+  colors = c("cyan", "black", "red")
+  cols = colorRampPalette(colors)(20)
+  breaks = seq(0, 1, length.out = length(cols) + 1)
+  main = paste0("methylome TSS+/-", up_str)
+  # par(mar=c(10, 4.1, 4.1, 2.1))
+  image(data$meth_data, col=cols, breaks=breaks, xaxt="n", 
+      yaxt="n", main=main)
+  axis(1, (1:nrow(data$meth_data) - 1)/(nrow(data$meth_data) - 1), rownames(data$meth_data), 
+      las = 2)
+}
+for (gene in c("AKR1E2", "SGCE", "PEG10")) {
+  momic_pattern(gene, tcga_project)
+}
+```
+
+```{r}
+for (gene in c("AKR1E2", "SGCE", "PEG10")) {
+  pdf(paste0("fig_momic_pattern_", gene, ".pdf"), width=9, height=6)
+  momic_pattern(gene, tcga_project)
+  dev.off()
+}
+```
+
+
+
+
+# Method 1
+
+```{r}
+layout(1, respect=TRUE)
+cor_expr_meth = function(gene, tcga_project) {
+  d = mget_multiomic_data(gene, tcga_project)
+  mmeth = apply(t(d$meth_data), 1, mean)
+  idx = names(d$trscr_data)
+  m = lm(d$trscr_data[idx]~mmeth[idx])
+  sm = summary(m)
+  pval = pf(sm$fstatistic[1],sm$fstatistic[2],sm$fstatistic[3], lower.tail=FALSE)
+  plot(mmeth[idx], d$trscr_data[idx], 
+    main=paste0("mean_meth~", gene, " R^2=", signif(sm$r.squared, 2), " pval=", signif(pval, 2)),
+    xlab=paste0("log2(normalized counts + 1)"),
+    ylab=paste0("promoter average methylation")
+  )
+  abline(m, col=2)
+  summary(m)
+}
+gene = "AKR1E2"
+cor_expr_meth("AKR1E2", tcga_project)
+pdf(paste0("fig_cor_expr_meth_", gene, ".pdf"), width=5, height=5)
+cor_expr_meth("AKR1E2", tcga_project)
+dev.off()
+```
+
+
+
+
+
+# Method 2
+
+
+
+```
+THRESH="0.0000000001"
+# gene_symbols = c("AKR1E2")   ; rmarkdown::render("01.3_sgce_peg10.Rmd", output_file=paste0("01.3_", paste0(gene_symbols, collapse="_"), ".html"))
+comb-p pipeline -c 5 --seed $THRESH --dist 1000 --acf-dist 10 --step 5  -p dmr_AKR1E2 --region-filter-p 0.0000000001 --region-filter-n 2 ewas4combp_AKR1E2.bed; zcat dmr_AKR1E2.fdr.bed.gz ; cat dmr_AKR1E2.regions-t.bed 
+# gene_symbols = c("SGCE")  ; rmarkdown::render("01.3_sgce_peg10.Rmd", output_file=paste0("01.3_", paste0(gene_symbols, collapse="_"), ".html"))
+comb-p pipeline -c 5 --seed $THRESH --dist 1000  -p dmr_SGCE --region-filter-p 0.05 --region-filter-n 2 ewas4combp_SGCE.bed
+# gene_symbols = c("PEG10")  ; rmarkdown::render("01.3_sgce_peg10.Rmd", output_file=paste0("01.3_", paste0(gene_symbols, collapse="_"), ".html"))
+comb-p pipeline -c 5 --seed $THRESH --dist 1000  -p dmr_PEG10 --region-filter-p 0.05 --region-filter-n 2 ewas4combp_PEG10.bed
+# gene_symbols = c("SGCE"     ,  "PEG10")  ; rmarkdown::render("01.3_sgce_peg10.Rmd", output_file=paste0("01.3_", paste0(gene_symbols, collapse="_"), ".html"))
+comb-p pipeline -c 5 --seed $THRESH --dist 1000  -p dmr_SGCE+PEG10 --region-filter-p 0.05 --region-filter-n 2 ewas4combp_SGCE+PEG10.bed
+```
+
+```{r}
+method2 = function (gene, threshold = 0.0000000001, legendplace="topright") {
+  layout(1)
+  # recuparation du fichier dmrbycombp1000_SGCE.fdr.bed après comb-p
+  # comb.p <- read.table(paste0("data/dmrbycombp1000_", gene, ".fdr.bed"))
+  comb.p <- read.table(gzfile(paste0("dmr_", gene, ".fdr.bed.gz")))
+  ewas  <- read.table(paste0("ewas4combp_", gene, ".bed"), header=TRUE)
+  comb.p.reg <- read.table(paste0("dmr_", gene, ".regions-t.bed"))
+
+  pval.ewas <- comb.p$V4
+  pval.slk <- comb.p$V5
+  pval.fdr <- comb.p$V6 
+
+  x <- 1:length(-log10(pval.ewas))
+  plot(x, -log10(pval.ewas), col="red", xaxt="n", 
+    xlab="", ylab="-log10(p-values)", 
+    main=paste0("meth~", gene), 
+    ylim=c(0, max(-log10(pval.slk), -log10(pval.ewas))), 
+    type="l"
+  )
+  axis(1,at=x, labels=ewas$probes,las=2, cex.axis = 0.5, cex.axis = 0.5)
+  lines(-log10(pval.slk), col="blue"  , pch=18, type="l")
+  lines(-log10(pval.fdr), col="purple", pch=18, type="l") 
+
+  #ajout  de la région
+  x1 <- c(which(comb.p[,2] == comb.p.reg[[2]]), which(comb.p[,3] == comb.p.reg[[3]]))
+  y1 <- c(-log10(threshold), -log10(threshold)) 
+  abline(h=-log10(threshold), col="black", lwd=1, lty=2)
+  lines(x1,y1, type="o", col="green", pch=18, lwd=4)
+  # Ajouter une légende
+  legend(legendplace, legend=c("pvalues lm (ewas)", "pvalues comb-p (slk)", "pvalues comb-p (fdr)",  "threshold", "region"), 
+    col=c("red","blue", "purple", "black", "green"),
+    lwd=c(1,1,1,1,4), lty = c(1,1,1,2,1)
+  )  
+}
+
+for (gene in c("AKR1E2", "SGCE", "PEG10", "SGCE+PEG10")) {
+  legendplace="topright"
+  if (gene == "AKR1E2") legendplace="topleft"
+  method2(gene, legendplace=legendplace)
+}
+```
+```{r}
+for (gene in c("AKR1E2", "SGCE", "PEG10", "SGCE+PEG10")) {
+  pdf(paste0("fig_method2_", gene, ".pdf"), width=9, height=6)
+  legendplace="topright"
+  if (gene == "AKR1E2") legendplace="topleft"
+  method2(gene, legendplace=legendplace)
+  dev.off()
+}
+```
+
+
+# Method 3
+
+```{r, fig.height=8, fig.width=10}
+method3 = function(threshold = 0.0000000001) {
+  meth.sgce <- data.sgce$meth_data
+  trscr.sgce <- data.sgce$trscr_data
+  meth.peg10 <- data.peg10$meth_data
+  trscr.peg10 <- data.peg10$trscr_data
+  # regression linéaire gène  SGCE + PEG10
+  pval1 <- c()
+  idx_sample = intersect(colnames(meth.sgce), colnames(meth.peg10))
+  meth <- meth.sgce[,idx_sample]
+
+  for(i in 1:length(rownames(meth.sgce))){
+    s <- meth[i,]
+    lm2 <- summary(lm(s~trscr.sgce[idx_sample] + trscr.peg10[idx_sample]))
+    pval1[i] <- pf(lm2$fstatistic[1],lm2$fstatistic[2],lm2$fstatistic[3], lower.tail = FALSE)
+  }
+
+  # SGCE
+  pval2 <- c()
+  for(i in 1:length(rownames(meth.sgce))){
+    lm3 <- lm(meth.sgce[i,]~trscr.sgce)
+    pval2[i] <- summary(lm3)$coefficients[2,4]
+  }
+
+  # PEG10
+  pval3 <- c()
+  for(i in 1:length(rownames(meth.peg10))){
+    lm3 <- lm(meth.peg10[i,]~trscr.peg10)
+    pval3[i] <- summary(lm3)$coefficients[2,4]
+  }
+
+
+
+
+
+  gene = "SGCE+PEG10"
+  comb.p <- read.table(gzfile(paste0("dmr_", gene, ".fdr.bed.gz")))
+  ewas  <- read.table(paste0("ewas4combp_", gene, ".bed"), header=TRUE)
+  comb.p.reg <- read.table(paste0("dmr_", gene, ".regions-t.bed"))
+
+  pval.ewas <- comb.p$V4
+  pval.slk <- comb.p$V5
+  pval.fdr <- comb.p$V6 
+
+
+  #names(pval1) = rownames(meth.peg10)
+  ### plot 
+  x <- 1:dim(meth)[1]
+  plot(x,-log10(pval1),col="grey", xaxt="n", xlab = "sondes", ylab = "-log10(p-values)", lwd = 5, pch=20, type = 'l', main="meth~SGCE+PEG10")
+  axis(1,at=x,labels = rownames(meth.peg10),las=2, cex.axis = 0.5)
+  points(-log10(pval2),col="blue",pch=18, type = 'l')
+  points(-log10(pval3),col="red",pch=18, type = 'l')
+
+  #ajout  de la région
+  x1 <- c(which(comb.p[,2] == comb.p.reg[[2]]), which(comb.p[,3] == comb.p.reg[[3]]))
+  y1 <- c(-log10(threshold), -log10(threshold)) 
+  abline(h=-log10(threshold), col="black", lwd=1, lty=2)
+  lines(-log10(pval.slk), col="grey"  ,lty=2, type="l")
+  lines(-log10(pval.fdr), col="grey", lty=3, type="l")
+  lines(x1,y1, type="o", col="green", pch=18, lwd=4)
+
+
+  # # Ajouter une légende
+  # legend(legendplace, legend=c("pvalues lm (ewas)", "pvalues comb-p (slk)", "pvalues comb-p (fdr)",  "threshold", "region"),
+  #   col=c("red","blue", "purple", "black", "green"),
+  #   lwd=c(1,1,1,1,4), lty = c(1,1,1,2,1)
+  # )
+
+
+  # Ajouter une légende
+  legend("topright", legend=c("p-val Fisher", "p-val Student SGCE", "p-val Student PEG10",  "threshold", "region", "pval SLK raw", "pvalues SLK FDR"), 
+    lwd=c(5,1,1,1,5, 1, 1), lty=c(1,1,1,1,1,2,3), 
+    col = c("grey","blue", "red", "black", "green", "grey", "grey")
+  )  
+}
+method3()
+pdf(paste0("fig_method3_SGCE_PEG10.pdf"), width=9, height=6)
+method3()
+dev.off()
+```
+
+
+
+
+
+# Session Information
+
+```{r, results="verbatim"}
+sessionInfo()
+```
